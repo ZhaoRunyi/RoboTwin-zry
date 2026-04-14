@@ -464,6 +464,14 @@ class Base_Task(gym.Env):
             actor_segmentation = self.cameras.get_segmentation(level="actor")
             for camera_name in actor_segmentation.keys():
                 pkl_dic["observation"][camera_name].update(actor_segmentation[camera_name])
+        # obj_robot_segmentation
+        if self.data_type.get("obj_robot_segmentation", False):
+            obj_robot_segmentation = self.cameras.get_segmentation(
+                level="coarse",
+                segmentation_ids=self.get_segmentation_scene_ids(level="coarse"),
+            )
+            for camera_name in obj_robot_segmentation.keys():
+                pkl_dic["observation"][camera_name].update(obj_robot_segmentation[camera_name])
         # depth
         if self.data_type.get("depth", False):
             depth = self.cameras.get_depth()
@@ -498,6 +506,110 @@ class Base_Task(gym.Env):
 
         self.now_obs = deepcopy(pkl_dic)
         return pkl_dic
+
+    def _get_actor_id(self, entity):
+        actor_id = getattr(entity, "per_scene_id", None)
+        if actor_id is not None:
+            return int(actor_id)
+        get_actor_id = getattr(entity, "get_per_scene_id", None)
+        if callable(get_actor_id):
+            return int(get_actor_id())
+        return None
+
+    def _get_mesh_id(self, entity):
+        for attr_name in ["visual_id", "per_scene_id"]:
+            mesh_id = getattr(entity, attr_name, None)
+            if mesh_id is not None:
+                return int(mesh_id)
+            get_mesh_id = getattr(entity, f"get_{attr_name}", None)
+            if callable(get_mesh_id):
+                try:
+                    return int(get_mesh_id())
+                except Exception:
+                    pass
+        return None
+
+    def _get_entity_mesh_ids(self, entity):
+        mesh_ids = set()
+        if entity is None:
+            return mesh_ids
+
+        stack = [entity]
+        visited = set()
+        child_getters = ["get_visual_bodies", "get_render_bodies", "get_render_shapes", "get_components", "get_entity"]
+        child_attrs = ["render_shapes", "components", "entity"]
+
+        while stack:
+            node = stack.pop()
+            marker = id(node)
+            if marker in visited:
+                continue
+            visited.add(marker)
+
+            mesh_id = self._get_mesh_id(node)
+            if mesh_id is not None:
+                mesh_ids.add(mesh_id)
+
+            for getter_name in child_getters:
+                getter = getattr(node, getter_name, None)
+                if not callable(getter):
+                    continue
+                try:
+                    children = getter()
+                except Exception:
+                    continue
+                if children is None:
+                    continue
+                if not isinstance(children, (list, tuple)):
+                    children = [children]
+                for child in children:
+                    if child is not None:
+                        stack.append(child)
+
+            for attr_name in child_attrs:
+                children = getattr(node, attr_name, None)
+                if children is None:
+                    continue
+                if not isinstance(children, (list, tuple)):
+                    children = [children]
+                for child in children:
+                    if child is not None:
+                        stack.append(child)
+        return mesh_ids
+
+    def _get_robot_mesh_ids(self):
+        robot_mesh_ids = set()
+        if not hasattr(self, "robot"):
+            return robot_mesh_ids
+
+        for articulation in [getattr(self.robot, "left_entity", None), getattr(self.robot, "right_entity", None)]:
+            if articulation is None:
+                continue
+            for link in articulation.get_links():
+                robot_mesh_ids.update(self._get_entity_mesh_ids(link))
+        return robot_mesh_ids
+
+    def _get_object_actor_ids(self):
+        object_actor_ids = set()
+        background_names = {"", "table", "wall", "ground"}
+
+        for entity in self.scene.get_all_actors():
+            actor_name = entity.get_name()
+            if actor_name in background_names:
+                continue
+            actor_id = self._get_actor_id(entity)
+            if actor_id is None:
+                continue
+            object_actor_ids.add(actor_id)
+        return object_actor_ids
+
+    def get_segmentation_scene_ids(self, level):
+        if level != "coarse":
+            raise ValueError(f"Unsupported segmentation level: {level}")
+        return {
+            "object_actor_ids": np.array(sorted(self._get_object_actor_ids()), dtype=np.int32),
+            "robot_mesh_ids": np.array(sorted(self._get_robot_mesh_ids()), dtype=np.int32),
+        }
 
     def save_camera_rgb(self, save_path, camera_name='head_camera'):
         self._update_render()

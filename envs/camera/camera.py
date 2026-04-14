@@ -374,18 +374,41 @@ class Camera:
         return _get_rgb(self.observer_camera)
 
     # Get Camera Segmentation
-    def get_segmentation(self, level="mesh") -> dict:
+    def get_segmentation(self, level="mesh", segmentation_ids=None) -> dict:
 
-        def _get_segmentation(camera, level="mesh"):
+        def _get_segmentation(camera, level="mesh", segmentation_ids=None):
             # visual_id is the unique id of each visual shape
             seg_labels = camera.get_picture("Segmentation")  # [H, W, 4]
-            colormap = sorted(set(ImageColor.colormap.values()))
-            color_palette = np.array([ImageColor.getrgb(color) for color in colormap], dtype=np.uint8)
             if level == "mesh":
-                label0_image = seg_labels[..., 0].astype(np.uint8)  # mesh-level
-            elif level == "actor":
-                label0_image = seg_labels[..., 1].astype(np.uint8)  # actor-level
-            return color_palette[label0_image]
+                colormap = sorted(set(ImageColor.colormap.values()))
+                color_palette = np.array([ImageColor.getrgb(color) for color in colormap], dtype=np.uint8)
+                label_image = seg_labels[..., 0].astype(np.uint8)  # mesh-level
+                return color_palette[label_image]
+            if level == "actor":
+                colormap = sorted(set(ImageColor.colormap.values()))
+                color_palette = np.array([ImageColor.getrgb(color) for color in colormap], dtype=np.uint8)
+                label_image = seg_labels[..., 1].astype(np.uint8)  # actor-level
+                return color_palette[label_image]
+            if level == "coarse":
+                actor_label_image = seg_labels[..., 1].astype(np.int32)
+                mesh_label_image = seg_labels[..., 0].astype(np.int32)
+                object_actor_ids = np.asarray(segmentation_ids.get("object_actor_ids", []), dtype=np.int32)
+                robot_mesh_ids = np.asarray(segmentation_ids.get("robot_mesh_ids", []), dtype=np.int32)
+                coarse_label_image = np.zeros(actor_label_image.shape, dtype=np.uint8)
+                if object_actor_ids.size > 0:
+                    coarse_label_image[np.isin(actor_label_image, object_actor_ids)] = 1
+                if robot_mesh_ids.size > 0:
+                    coarse_label_image[np.isin(mesh_label_image, robot_mesh_ids)] = 2
+                color_palette = np.array(
+                    [
+                        [0, 0, 255],
+                        [0, 255, 0],
+                        [255, 0, 0],
+                    ],
+                    dtype=np.uint8,
+                )
+                return color_palette[coarse_label_image]
+            raise ValueError(f"Unsupported segmentation level: {level}")
 
         res = {
             # 'left_camera':{},
@@ -395,17 +418,33 @@ class Camera:
         if self.collect_wrist_camera:
             res["left_camera"] = {}
             res["right_camera"] = {}
-            res["left_camera"][f"{level}_segmentation"] = _get_segmentation(self.left_camera, level=level)
-            res["right_camera"][f"{level}_segmentation"] = _get_segmentation(self.right_camera, level=level)
+            res["left_camera"][f"{level}_segmentation"] = _get_segmentation(
+                self.left_camera,
+                level=level,
+                segmentation_ids=segmentation_ids,
+            )
+            res["right_camera"][f"{level}_segmentation"] = _get_segmentation(
+                self.right_camera,
+                level=level,
+                segmentation_ids=segmentation_ids,
+            )
 
         for camera, camera_name in zip(self.static_camera_list, self.static_camera_name):
             if camera_name == "head_camera":
                 if self.collect_head_camera:
                     res[camera_name] = {}
-                    res[camera_name][f"{level}_segmentation"] = _get_segmentation(camera, level=level)
+                    res[camera_name][f"{level}_segmentation"] = _get_segmentation(
+                        camera,
+                        level=level,
+                        segmentation_ids=segmentation_ids,
+                    )
             else:
                 res[camera_name] = {}
-                res[camera_name][f"{level}_segmentation"] = _get_segmentation(camera, level=level)
+                res[camera_name][f"{level}_segmentation"] = _get_segmentation(
+                    camera,
+                    level=level,
+                    segmentation_ids=segmentation_ids,
+                )
         return res
 
     # Get Camera Depth
