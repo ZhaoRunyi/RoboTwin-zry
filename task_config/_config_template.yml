@@ -28,6 +28,7 @@ data_type:
   mesh_segmentation: false
   actor_segmentation: false
   obj_robot_segmentation: false
+  obj_robot_depth: false
 pcd_down_sample_num: 1024
 pcd_crop: true
 save_path: ./data

@@ -448,12 +448,16 @@ class Camera:
         return res
 
     # Get Camera Depth
-    def get_depth(self) -> dict:
+    def get_depth(self, segmentation_ids=None, depth_name="depth") -> dict:
 
         def _get_depth(camera):
             position = camera.get_picture("Position")
             depth = -position[..., 2]
             depth_image = (depth * 1000.0).astype(np.float64)
+            if segmentation_ids is not None:
+                seg_labels = camera.get_picture("Segmentation")
+                mask = np.isin(seg_labels[..., 1].astype(np.int32), segmentation_ids["object_actor_ids"]) | np.isin(seg_labels[..., 0].astype(np.int32), segmentation_ids["robot_mesh_ids"])
+                depth_image *= mask
             return depth_image
 
         def _get_sensor_depth(sensor):
@@ -467,21 +471,21 @@ class Camera:
         if self.collect_wrist_camera:
             res["left_camera"] = {}
             res["right_camera"] = {}
-            res["left_camera"]["depth"] = _get_depth(self.left_camera)
-            res["right_camera"]["depth"] = _get_depth(self.right_camera)
-            res["left_camera"]["depth"] *= rgba["left_camera"]["rgba"][:, :, 3] / 255
-            res["right_camera"]["depth"] *= rgba["right_camera"]["rgba"][:, :, 3] / 255
+            res["left_camera"][depth_name] = _get_depth(self.left_camera)
+            res["right_camera"][depth_name] = _get_depth(self.right_camera)
+            res["left_camera"][depth_name] *= rgba["left_camera"]["rgba"][:, :, 3] / 255
+            res["right_camera"][depth_name] *= rgba["right_camera"]["rgba"][:, :, 3] / 255
         
         for camera, camera_name in zip(self.static_camera_list, self.static_camera_name):
             if camera_name == "head_camera":
                 if self.collect_head_camera:
                     res[camera_name] = {}
-                    res[camera_name]["depth"] = _get_depth(camera)
-                    res[camera_name]["depth"] *= rgba[camera_name]["rgba"][:, :, 3] / 255
+                    res[camera_name][depth_name] = _get_depth(camera)
+                    res[camera_name][depth_name] *= rgba[camera_name]["rgba"][:, :, 3] / 255
             else:
                 res[camera_name] = {}
-                res[camera_name]["depth"] = _get_depth(camera)
-                res[camera_name]["depth"] *= rgba[camera_name]["rgba"][:, :, 3] / 255
+                res[camera_name][depth_name] = _get_depth(camera)
+                res[camera_name][depth_name] *= rgba[camera_name]["rgba"][:, :, 3] / 255
         # res['head_sensor']['depth'] = _get_sensor_depth(self.head_sensor)
 
         return res

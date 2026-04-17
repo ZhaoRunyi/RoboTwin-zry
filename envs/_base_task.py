@@ -477,6 +477,10 @@ class Base_Task(gym.Env):
             depth = self.cameras.get_depth()
             for camera_name in depth.keys():
                 pkl_dic["observation"][camera_name].update(depth[camera_name])
+        if self.data_type.get("obj_robot_depth", False):
+            obj_robot_depth = self.cameras.get_depth(self.get_segmentation_scene_ids(level="coarse"), "obj_robot_depth")
+            for camera_name in obj_robot_depth.keys():
+                pkl_dic["observation"][camera_name].update(obj_robot_depth[camera_name])
         # endpose
         if self.data_type.get("endpose", False):
             norm_gripper_val = [
